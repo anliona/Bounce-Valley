@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>关卡数据校验 · Bounce Valley</title>
+<style>
+  body { background: #0d1220; color: #cde3d8; font: 14px/1.7 Consolas, monospace; padding: 24px; }
+  h1 { color: #7dff9e; font-size: 18px; }
+  .ok { color: #7dff9e; }
+  .bad { color: #ff7a6b; }
+  .info { color: #9db8d8; }
+  h2 { color: #ffd54a; font-size: 15px; margin: 18px 0 6px; }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>关卡数据校验</h1>
+<pre id="out">运行中…</pre>
+<script>
+/* 动态加载关卡脚本（带随机串，绕过浏览器缓存，便于反复修改调试） */
+['level1', 'level2', 'level3', 'registry'].forEach(n => {
+  document.write('<script src="../js/levels/' + n + '.js?bust=' + Math.random() + '"><\/script>');
+});
+</script>
+<script>
+(function () {
+  const out = [];
+  let failures = 0;
+  const fail = (m) => { failures++; out.push('<span class="bad">  ✗ ' + m + '</span>'); };
+  const ok = (m) => out.push('<span class="ok">  ✓ ' + m + '</span>');
+  const info = (m) => out.push('<span class="info">  · ' + m + '</span>');
+  const CHUNK_W = 20, T = 64;
+
+  for (const def of window.BT.LEVELS) {
+    out.push('<h2>=== LEVEL ' + def.id + ' ' + def.name + ' (' + def.theme + ') ===</h2>');
+    const rows = def.rows;
+    const chunks = def.chunks.map(raw =>
+      raw.split('\n').map(l => l.replace(/\r/g, '')).filter(l => l.length > 0));
+    const grid = [];
+    let colBase = 0;
+    for (const lines of chunks) {
+      if (lines.length > rows) fail('chunk 行数 ' + lines.length + ' 超过关卡行数 ' + rows);
+      while (lines.length < rows) lines.unshift('');
+      const width = Math.max(...lines.map(l => l.length));
+      if (width !== CHUNK_W) fail('chunk 宽度 ' + width + ' ≠ ' + CHUNK_W);
+      lines.forEach((line, i) => { if (line.length !== width && line.trim().length > 0) fail('chunk 第 ' + i + ' 行宽 ' + line.length + ' ≠ ' + width); });
+      for (let r = 0; r < rows; r++) {
+        const line = (lines[r] || '').padEnd(width, '.');
+        for (let c = 0; c < width; c++) {
+          while (grid.length <= r) grid.push([]);
+          grid[r][colBase + c] = line[c];
+        }
+      }
+      colBase += width;
+    }
+    const cols = colBase;
+    const at = (c, r) => (r < 0 || r >= rows || c < 0 || c >= cols) ? '.' : grid[r][c];
+    ok('尺寸 ' + cols + ' x ' + rows + ' 格 = ' + cols * T + ' x ' + rows * T + ' px，chunks: ' + def.chunks.length);
+
+    const count = {};
+    let spawn = 0, exitN = 0;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const ch = at(c, r);
+      count[ch] = (count[ch] || 0) + 1;
+      if (ch === 'P') spawn++;
+      if (ch === 'E') exitN++;
+    }
+    if (spawn === 1) ok('出生点 P x1'); else fail('出生点 P 数量 = ' + spawn);
+    if (exitN === 1) ok('出口 E x1'); else fail('出口 E 数量 = ' + exitN);
+
+    const metaMap = { M: 'platforms', m: 'spikeballs', r: 'rocks', L: 'lasers', S: 'switches' };
+    for (const k in metaMap) {
+      const n = count[k] || 0, m = (def[metaMap[k]] || []).length;
+      if (n === m) ok('标记 ' + k + ' x' + n + ' = meta.' + metaMap[k] + ' x' + m);
+      else fail('标记 ' + k + ' x' + n + ' ≠ meta.' + metaMap[k] + ' x' + m);
+    }
+
+    /* 门分组 */
+    const visited = new Set();
+    let doorGroups = 0;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      if (at(c, r) !== 'D' || visited.has(c + ',' + r)) continue;
+      doorGroups++;
+      const stack = [[c, r]]; visited.add(c + ',' + r);
+      while (stack.length) {
+        const [cc, rr] = stack.pop();
+        for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nk = (cc + d[0]) + ',' + (rr + d[1]);
+          if (!visited.has(nk) && at(cc + d[0], rr + d[1]) === 'D') { visited.add(nk); stack.push([cc + d[0], rr + d[1]]); }
+        }
+      }
+    }
+    const targets = [];
+    for (const sw of (def.switches || [])) targets.push(...(sw.targets || []));
+    let maxDoor = -1;
+    for (const t of targets) if (t.startsWith('door')) maxDoor = Math.max(maxDoor, +t.replace('door', ''));
+    if (maxDoor < doorGroups) ok('门组 x' + doorGroups + '，开关引用 door0..door' + maxDoor + ' ✓');
+    else fail('开关引用了不存在的门 door' + maxDoor + '（仅有 ' + doorGroups + ' 组）');
+    for (const t of targets) if (t.startsWith('laser') && (+t.replace('laser', '')) >= (count['L'] || 0)) fail('开关引用了不存在的激光 ' + t);
+
+    info('能量球 o x' + (count['o'] || 0) + '，检查点 C x' + (count['C'] || 0) + '，尖刺 ^ x' + (count['^'] || 0) + '，门组 x' + doorGroups);
+
+    let waterBad = 0;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++)
+      if (at(c, r) === 'W' && !('W#oisSXBCPEMmLr'.includes(at(c, r + 1)))) waterBad++;
+    if (waterBad === 0) ok('所有水体底部有支撑'); else fail(waterBad + ' 个水格悬空');
+
+    info('隐藏块 h 为可穿过的隐藏洞口，无需支撑（人工确认外观提示即可）');
+
+    let slopeBad = 0;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const ch = at(c, r);
+      if (ch !== '/' && ch !== '\\') continue;
+      const below = at(c, r + 1);
+      const side = ch === '/' ? at(c + 1, r + 1) : at(c - 1, r + 1);
+      if (!'#bh'.includes(below) && !'\\/'.includes(side)) slopeBad++;
+    }
+    if (slopeBad === 0) ok('所有斜坡下方有支撑'); else fail(slopeBad + ' 个斜坡下方悬空');
+
+    let groundBad = 0;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      if (!'PCE'.includes(at(c, r))) continue;
+      let solid = false;
+      for (let rr = r + 1; rr <= Math.min(rows - 1, r + 5); rr++) {
+        if ('#bh'.includes(at(c, rr)) || '/\\'.includes(at(c, rr))) { solid = true; break; }
+      }
+      if (!solid) { groundBad++; fail("'" + at(c, r) + "' @ (" + c + ',' + r + ') 下方 5 格内没有地面'); }
+    }
+    if (groundBad === 0) ok('P/C/E 下方均有地面');
+  }
+
+  out.push('<h2>================================</h2>');
+  if (failures === 0) out.push('<span class="ok">全部检查通过 ✓</span>');
+  else out.push('<span class="bad">' + failures + ' 个问题需要修复 ✗</span>');
+  document.getElementById('out').innerHTML = out.join('\n');
+  document.title = failures === 0 ? 'VALIDATE PASS' : 'VALIDATE FAIL ' + failures;
+})();
+</script>
+</body>
+</html>

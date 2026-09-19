@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Bounce Valley · 弹弹谷大冒险</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <!-- 游戏画布：固定内部分辨率 1920x1080，CSS 等比缩放适配各种屏幕 -->
+  <canvas id="gameCanvas" width="1920" height="1080"></canvas>
+
+  <!-- Виньетка в стиле Hollow Knight: мягкое затемнение краёв -->
+  <div id="vignette" aria-hidden="true"></div>
+
+  <!-- ============ Начальная заставка (splash) ============ -->
+  <div id="splash">
+    <div class="splash-frame">
+      <div class="splash-ornament">❖</div>
+      <h1 class="splash-title">BOUNCE VALLEY</h1>
+      <div class="splash-sub">ХРОНИКИ ДОЛИНЫ СКАЧКОВ</div>
+      <div class="splash-line"></div>
+      <div class="splash-hint" id="splashHint">нажмите любую клавишу</div>
+    </div>
+  </div>
+
+  <!-- ======================= HUD ======================= -->
+  <div id="hud" class="hidden">
+    <div class="hud-chip" id="orbChip"><span class="orb-dot"></span><span id="orbText">0 / 0</span></div>
+    <div class="hud-chip hud-center" id="levelChip"><span id="levelName">LEVEL 1</span></div>
+    <div class="hud-chip hud-right">
+      <span id="timeText">00:00.0</span><span class="hud-sep"></span><span id="deathText">💀 0</span>
+    </div>
+  </div>
+
+  <!-- 关卡开始 / 提示 toast -->
+  <div id="toastBox" class="hidden"></div>
+
+  <!-- ======================= 触屏控制 ======================= -->
+  <div id="touchControls" class="hidden">
+    <div class="tc-cluster tc-left">
+      <button id="tcLeft" class="tc-btn" aria-label="left">&#9664;</button>
+      <button id="tcRight" class="tc-btn" aria-label="right">&#9654;</button>
+    </div>
+    <div class="tc-cluster tc-right">
+      <button id="tcJump" class="tc-btn tc-jump" aria-label="jump">JUMP</button>
+    </div>
+  </div>
+
+  <!-- ======================= 菜单层 ======================= -->
+  <div id="menuRoot">
+
+    <!-- 主菜单 -->
+    <div id="mainMenu" class="menu-screen">
+      <div class="title-wrap">
+        <canvas id="titleBall" width="150" height="150"></canvas>
+        <h1 class="game-title">BOUNCE VALLEY</h1>
+        <h2 class="game-subtitle">ХРОНИКИ ДОЛИНЫ СКАЧКОВ</h2>
+      </div>
+      <div class="menu-buttons">
+        <button id="btnPlay" class="btn btn-hk">ИГРАТЬ</button>
+        <button id="btnMap" class="btn btn-hk">КАРТА</button>
+        <button id="btnExit" class="btn btn-hk">ВЫЙТИ</button>
+      </div>
+      <div class="menu-secondary">
+        <button id="btnSettings" class="link-btn">настройки</button>
+        <span class="dot-sep">·</span>
+        <button id="btnAbout" class="link-btn">об игре</button>
+      </div>
+      <div class="menu-foot">A/D или ←/→ — движение · Space — прыжок · ESC — пауза · R — заново</div>
+    </div>
+
+    <!-- Карта мира (в стиле Hollow Knight): путь, узлы уровней, маркер игрока -->
+    <div id="levelSelect" class="menu-screen hidden">
+      <h2 class="screen-title hk-title">КАРТА МИРА</h2>
+      <div id="levelMap">
+        <svg id="mapSvg" viewBox="0 0 1000 430" preserveAspectRatio="xMidYMid meet"></svg>
+        <div id="mapLegend">
+          <span class="lg-item"><span class="lg-swatch lg-done"></span>пройдено</span>
+          <span class="lg-item"><span class="lg-swatch lg-current"></span>вы здесь</span>
+          <span class="lg-item"><span class="lg-swatch lg-locked"></span>закрыто</span>
+          <span class="lg-item"><span class="lg-swatch lg-future"></span>???</span>
+        </div>
+      </div>
+      <button id="btnBackMain" class="btn btn-back">← НАЗАД</button>
+    </div>
+
+    <!-- 设置 -->
+    <div id="settingsPanel" class="menu-screen hidden">
+      <h2 class="screen-title">SETTINGS</h2>
+      <div class="settings-body">
+        <label class="setting-row">
+          <span>音乐音量 Music</span>
+          <input type="range" id="musicRange" min="0" max="100" value="70">
+          <b id="musicVal">70</b>
+        </label>
+        <label class="setting-row">
+          <span>音效音量 SFX</span>
+          <input type="range" id="sfxRange" min="0" max="100" value="90">
+          <b id="sfxVal">90</b>
+        </label>
+        <label class="setting-row">
+          <span>触屏按钮 Touch Controls</span>
+          <select id="touchSel">
+            <option value="auto">AUTO 自动</option>
+            <option value="on">ON 显示</option>
+            <option value="off">OFF 隐藏</option>
+          </select>
+        </label>
+        <button id="btnResetSave" class="btn btn-danger btn-small">RESET SAVE 清除存档</button>
+      </div>
+      <button id="btnBackSettings" class="btn btn-back">← BACK</button>
+    </div>
+
+    <!-- 关于 -->
+    <div id="aboutPanel" class="menu-screen hidden">
+      <h2 class="screen-title">ABOUT</h2>
+      <div class="about-body">
+        <p><b>Bounce Valley 弹弹谷大冒险</b> — 一款原创的 2D 横版物理平台跳跃游戏。</p>
+        <p>你将控制一颗红色弹力球，穿越教学森林、幽暗洞穴与水域遗迹。</p>
+        <p class="controls-list">
+          <b>Управление</b><br>
+          A / ← — влево &nbsp;&nbsp; D / → — вправо<br>
+          Space / W / ↑ — прыжок (в воде — плыть)<br>
+          R — заново &nbsp;&nbsp; ESC — пауза<br>
+          ` / F3 — панель отладки
+        </p>
+        <p>全部图形、音效与音乐均由程序实时生成，原创内容。</p>
+      </div>
+      <button id="btnBackAbout" class="btn btn-back">← BACK</button>
+    </div>
+
+    <!-- 暂停菜单 -->
+    <div id="pauseMenu" class="menu-screen overlay-dim hidden">
+      <h2 class="screen-title">PAUSED</h2>
+      <div class="menu-buttons">
+        <button id="btnResume" class="btn btn-primary">RESUME <small>继续游戏</small></button>
+        <button id="btnRestartPause" class="btn">RESTART <small>重开本关</small></button>
+        <button id="btnSettingsPause" class="btn">SETTINGS <small>设置</small></button>
+        <button id="btnQuitToMenu" class="btn">MAIN MENU <small>返回主菜单</small></button>
+      </div>
+    </div>
+
+    <!-- 关卡完成 -->
+    <div id="levelComplete" class="menu-screen overlay-dim hidden">
+      <h2 class="screen-title lc-glow" id="lcTitle">LEVEL COMPLETE!</h2>
+      <div class="lc-stats">
+        <div class="lc-stat"><span class="lc-label">TIME 用时</span><b id="lcTime">00:00.0</b></div>
+        <div class="lc-stat"><span class="lc-label">ORBS 能量球</span><b id="lcOrbs">0 / 0</b></div>
+        <div class="lc-stat"><span class="lc-label">DEATHS 死亡</span><b id="lcDeaths">0</b></div>
+      </div>
+      <div id="lcNewRecord" class="lc-record hidden">★ NEW RECORD! 新纪录 ★</div>
+      <div class="menu-buttons lc-buttons">
+        <button id="btnNext" class="btn btn-primary">NEXT LEVEL <small>下一关</small></button>
+        <button id="btnRetry" class="btn">RETRY <small>再来一次</small></button>
+        <button id="btnMenuLC" class="btn">MAIN MENU <small>主菜单</small></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Экран выхода ============ -->
+  <div id="exitScreen" class="menu-screen overlay-dim hidden">
+    <h2 class="screen-title hk-title">ЗАНАВЕС</h2>
+    <p class="exit-note">Долина ждёт вашего возвращения. Можно закрыть эту вкладку.</p>
+    <button id="btnExitBack" class="btn btn-back">← ВЕРНУТЬСЯ</button>
+  </div>
+
+  <!-- ======================= 调试面板 ======================= -->
+  <div id="debugPanel" class="hidden">
+    <div class="dbg-head">DEBUG <span class="dbg-key">` / F3</span></div>
+    <div class="dbg-row">FPS <b id="dbgFps">60</b> · STATE <b id="dbgState">-</b></div>
+    <div class="dbg-row">POS <b id="dbgPos">0, 0</b></div>
+    <label class="dbg-slider">gravity <input type="range" id="dbgGravity" min="800" max="5000" value="2600"><b id="dbgGravityV">2600</b></label>
+    <label class="dbg-slider">jumpForce <input type="range" id="dbgJump" min="600" max="2000" value="1150"><b id="dbgJumpV">1150</b></label>
+    <label class="dbg-slider">maxSpeed <input type="range" id="dbgSpeed" min="200" max="1000" value="520"><b id="dbgSpeedV">520</b></label>
+    <label class="dbg-slider">friction <input type="range" id="dbgFriction" min="200" max="4000" value="1600"><b id="dbgFrictionV">1600</b></label>
+    <div class="dbg-btns">
+      <button id="dbgRestart" class="btn btn-small">Restart</button>
+      <button id="dbgCheckpoint" class="btn btn-small">To Checkpoint</button>
+      <button id="dbgUnlock" class="btn btn-small">Unlock All</button>
+      <button id="dbgWin" class="btn btn-small">Win Level</button>
+    </div>
+  </div>
+
+  <!-- 运行错误提示（开发辅助） -->
+  <div id="errToast" class="hidden"></div>
+</div>
+
+<!-- 依序加载各系统模块（全局命名空间 BT，无需构建工具，双击 index.html 即可运行） -->
+<script src="js/config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/save.js"></script>
+<script src="js/input.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/particles.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/physics.js"></script>
+<script src="js/entities/props.js"></script>
+<script src="js/entities/mechanisms.js"></script>
+<script src="js/entities/hazards.js"></script>
+<script src="js/player.js"></script>
+<script src="js/background.js"></script>
+<script src="js/level.js"></script>
+<script src="js/levels/level1.js"></script>
+<script src="js/levels/level2.js"></script>
+<script src="js/levels/level3.js"></script>
+<script src="js/levels/registry.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/debug.js"></script>
+<script src="js/game.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
